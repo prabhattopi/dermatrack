@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { 
   Camera, 
   Upload, 
@@ -39,48 +39,56 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [imgDimensions, setImgDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
-  // Camera State
+  // Camera Refs - Dedicated stream ref so tracks can be killed even if DOM unmounts
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [streamActive, setStreamActive] = useState<boolean>(false);
+  const streamRef = useRef<MediaStream | null>(null);
 
   // Calibration Ring State
   const [ringDiameterPx, setRingDiameterPx] = useState<number>(120);
-  const [ringPos, setRingPos] = useState<{ x: number; y: number }>({ x: 30, y: 75 }); // percentage
+  const [ringPos, setRingPos] = useState<{ x: number; y: number }>({ x: 30, y: 75 });
 
   const calculatedPPM = parseFloat((ringDiameterPx / selectedCoinMm).toFixed(2));
 
-  // Camera Management
+  // Stop camera tracks cleanly
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => {
+        track.stop();
+      });
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  // Start camera and attach stream
   const startCamera = async () => {
+    stopCamera(); // Pehle se koi purani stream ho to stop karein
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
       });
+      streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        setStreamActive(true);
       }
     } catch (err) {
       setErrorMessage("Camera access denied or unavailable: " + String(err));
     }
   };
 
-  const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
-      videoRef.current.srcObject = null;
-      setStreamActive(false);
-    }
-  };
-
+  // Switch mode effect: Agar camera mode nahi hai to hardware turant stop hoga
   useEffect(() => {
-    if (mode === "camera") {
+    if (mode === "camera" && !imageUrl) {
       startCamera();
     } else {
       stopCamera();
     }
-    return () => stopCamera();
-  }, [mode]);
+    return () => {
+      stopCamera();
+    };
+  }, [mode, imageUrl, stopCamera]);
 
   const captureCameraFrame = () => {
     if (!videoRef.current) return;
@@ -90,6 +98,10 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+
+    // Frame capture hote hi camera band kar do
+    stopCamera();
+
     canvas.toBlob((blob) => {
       if (blob) {
         const file = new File([blob], "camera-capture.png", { type: "image/png" });
@@ -100,8 +112,11 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
 
   // Upload to Backend
   const handleFileUpload = async (file: File) => {
+    // Agar camera chal raha tha to upload start hote hi stop ho jaye
+    stopCamera();
     setUploading(true);
     setErrorMessage(null);
+
     const formData = new FormData();
     formData.append("file", file);
     formData.append("reference_diameter_mm", selectedCoinMm.toString());
@@ -138,30 +153,27 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     }
   };
 
-  // Generate Benchmark Test PNG using HTML5 Canvas (100% Valid Raster PNG)
+  // Benchmark PNG generator
   const generateBenchmarkPNG = (isEvolving: boolean) => {
+    stopCamera();
     const canvas = document.createElement("canvas");
     canvas.width = 600;
     canvas.height = 600;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Skin base tone
     ctx.fillStyle = "#e0b59f";
     ctx.fillRect(0, 0, 600, 600);
 
-    // Subtle skin texture
     for (let i = 0; i < 400; i++) {
       ctx.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)";
       ctx.fillRect(Math.random() * 600, Math.random() * 600, 2, 2);
     }
 
-    // 25mm Reference Coin at bottom-left
     const coinX = 180;
     const coinY = 450;
-    const coinR = 60; // 120px diameter
+    const coinR = 60;
 
-    // Outer coin rim
     ctx.beginPath();
     ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
     ctx.fillStyle = "#b5871f";
@@ -170,56 +182,47 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     ctx.strokeStyle = "#7c5506";
     ctx.stroke();
 
-    // Inner coin face
     ctx.beginPath();
     ctx.arc(coinX, coinY, coinR - 8, 0, Math.PI * 2);
     ctx.fillStyle = "#d4af37";
     ctx.fill();
 
-    // Text on coin
     ctx.fillStyle = "#4a3202";
     ctx.font = "bold 16px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("25 mm", coinX, coinY);
 
-    // Skin Lesion (Baseline vs Evolving)
     const moleX = 400;
     const moleY = 220;
 
     if (!isEvolving) {
-      // Baseline Case (Circular, uniform color, ~6mm diameter)
       ctx.beginPath();
       ctx.arc(moleX, moleY, 20, 0, Math.PI * 2);
       ctx.fillStyle = "#482613";
       ctx.fill();
 
-      // Inner subtle gradient
       ctx.beginPath();
       ctx.arc(moleX - 3, moleY - 2, 12, 0, Math.PI * 2);
       ctx.fillStyle = "#331606";
       ctx.fill();
     } else {
-      // Evolving Case (Asymmetrical, notched border, multi-tone color, ~12mm diameter)
       ctx.beginPath();
       ctx.ellipse(moleX + 10, moleY - 5, 38, 28, Math.PI / 4, 0, Math.PI * 2);
       ctx.fillStyle = "#5c2b18";
       ctx.fill();
 
-      // Second dark asymmetrical lobule
       ctx.beginPath();
       ctx.ellipse(moleX - 12, moleY + 10, 26, 20, -Math.PI / 6, 0, Math.PI * 2);
       ctx.fillStyle = "#261105";
       ctx.fill();
 
-      // Deep pigmented core
       ctx.beginPath();
       ctx.arc(moleX, moleY, 14, 0, Math.PI * 2);
       ctx.fillStyle = "#0d0502";
       ctx.fill();
     }
 
-    // Convert Canvas to standard PNG Blob & upload
     canvas.toBlob((blob) => {
       if (blob) {
         const name = isEvolving ? "case2-evolving-month6.png" : "case1-baseline-month0.png";
@@ -235,7 +238,10 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
       <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-slate-800">
         <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
           <button
-            onClick={() => setMode("presets")}
+            onClick={() => {
+              stopCamera();
+              setMode("presets");
+            }}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
               mode === "presets" 
                 ? "bg-teal-500 text-slate-950 font-semibold shadow-lg shadow-teal-500/20" 
@@ -246,7 +252,10 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             1-Click Benchmark Cases
           </button>
           <button
-            onClick={() => setMode("upload")}
+            onClick={() => {
+              stopCamera();
+              setMode("upload");
+            }}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
               mode === "upload" 
                 ? "bg-teal-500 text-slate-950 font-semibold shadow-lg shadow-teal-500/20" 
@@ -257,7 +266,9 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             Upload File
           </button>
           <button
-            onClick={() => setMode("camera")}
+            onClick={() => {
+              setMode("camera");
+            }}
             className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
               mode === "camera" 
                 ? "bg-teal-500 text-slate-950 font-semibold shadow-lg shadow-teal-500/20" 
@@ -448,7 +459,6 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
               Drag the amber ring over the reference coin. Adjust the diameter slider until it matches the coin boundary to establish true millimeter scale.
             </p>
 
-            {/* Slider to adjust ring size manually */}
             <div className="mt-6 space-y-3">
               <div className="flex justify-between text-xs font-mono">
                 <span className="text-slate-400">Marker Ring Diameter:</span>
@@ -464,7 +474,6 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
               />
             </div>
 
-            {/* Calculated Scale Metrics Card */}
             <div className="mt-6 p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2 font-mono text-xs">
               <div className="flex justify-between">
                 <span className="text-slate-400">Physical Size:</span>
@@ -486,9 +495,9 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             {imageUrl && (
               <button
                 onClick={() => {
+                  stopCamera();
                   setImageUrl(null);
                   setErrorMessage(null);
-                  if (mode === "camera") startCamera();
                 }}
                 className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium border border-slate-800 transition-colors"
               >
@@ -499,6 +508,7 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             <button
               disabled={!imageUrl}
               onClick={() => {
+                stopCamera();
                 if (imageUrl) {
                   onCalibrationComplete({
                     imageUrl,
