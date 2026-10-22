@@ -9,10 +9,10 @@ import {
   Camera,
   Layers,
   History,
-  Check,
-  ArrowRight
+  Check
 } from "lucide-react";
 import CaptureWorkspace from "@/components/CaptureWorkspace";
+import ABCDEViewer from "@/components/ABCDEViewer";
 
 interface BackendStatus {
   status: string;
@@ -23,10 +23,27 @@ interface BackendStatus {
 
 interface CalibrationResult {
   imageUrl: string;
+  imageFilename: string;
   width: number;
   height: number;
   ppm: number;
   coinDiameterMm: number;
+}
+
+interface ABCDEResult {
+  success: boolean;
+  overlay_image_url: string;
+  mask_image_url: string;
+  asymmetry_score: number;
+  asymmetry_class: string;
+  border_compactness: number;
+  border_class: string;
+  color_variegation_score: number;
+  color_shades: string[];
+  diameter_mm: number;
+  diameter_risk: string;
+  total_abcde_risk: string;
+  clinical_summary: string;
 }
 
 export default function Dashboard() {
@@ -34,8 +51,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<"capture" | "segmentation" | "temporal">("capture");
   
-  // Calibrated image result stored in state
+  // Stored state
   const [calibratedData, setCalibratedData] = useState<CalibrationResult | null>(null);
+  const [abcdeResult, setAbcdeResult] = useState<ABCDEResult | null>(null);
 
   const checkConnection = async () => {
     setLoading(true);
@@ -55,10 +73,19 @@ export default function Dashboard() {
     checkConnection();
   }, []);
 
-  const handleCalibrationComplete = (data: CalibrationResult) => {
-    setCalibratedData(data);
-    // Smooth auto-transition to next tab
+  const handleCalibrationComplete = (data: { imageUrl: string; width: number; height: number; ppm: number; coinDiameterMm: number }) => {
+    // Extract filename from URL
+    const filename = data.imageUrl.split("/").pop() || "";
+    setCalibratedData({
+      ...data,
+      imageFilename: filename
+    });
     setActiveTab("segmentation");
+  };
+
+  const handleProceedToTemporal = (result: ABCDEResult) => {
+    setAbcdeResult(result);
+    setActiveTab("temporal");
   };
 
   return (
@@ -142,12 +169,13 @@ export default function Dashboard() {
             }`}
           >
             <Layers className="w-4 h-4" />
-            2. ABCDE Extraction (Phase 3)
+            2. ABCDE Extraction
+            {abcdeResult && <Check className="w-3.5 h-3.5 text-emerald-400 ml-1" />}
           </button>
 
           <button
             onClick={() => setActiveTab("temporal")}
-            disabled={!calibratedData}
+            disabled={!abcdeResult}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
               activeTab === "temporal"
                 ? "bg-teal-500/10 border-teal-500 text-teal-300 shadow-sm shadow-teal-500/20"
@@ -159,67 +187,28 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Phase 2: Active Workspace */}
+        {/* Phase 2: Active Calibration Workspace */}
         {activeTab === "capture" && (
           <CaptureWorkspace onCalibrationComplete={handleCalibrationComplete} />
         )}
 
-        {/* Phase 3 Tab View: Calibrated Target Preview */}
+        {/* Phase 3: Active ABCDE Extraction Viewport */}
         {activeTab === "segmentation" && calibratedData && (
-          <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 space-y-6">
-            <div className="flex justify-between items-center pb-6 border-b border-slate-800">
-              <div>
-                <span className="text-xs uppercase font-mono text-teal-400 tracking-wider">
-                  Phase 2 Hand-off Complete
-                </span>
-                <h2 className="text-xl font-bold text-white mt-1">Calibrated Target Staged for ABCDE</h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Established Scale: <span className="text-teal-300 font-mono font-semibold">{calibratedData.ppm} px/mm</span> using a {calibratedData.coinDiameterMm}mm reference standard.
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveTab("capture")}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl font-medium transition-colors"
-              >
-                Re-calibrate / Change Image
-              </button>
-            </div>
+          <ABCDEViewer
+            calibration={calibratedData}
+            onProceedToTemporal={handleProceedToTemporal}
+            onBackToCalibration={() => setActiveTab("capture")}
+          />
+        )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-              <div className="flex justify-center bg-slate-950 p-4 rounded-2xl border border-slate-800">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={calibratedData.imageUrl}
-                  alt="Calibrated target"
-                  className="max-h-[380px] w-auto object-contain rounded-xl shadow-lg"
-                />
-              </div>
-
-              <div className="space-y-4">
-                <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800/80 space-y-3 font-mono text-xs">
-                  <h4 className="text-slate-300 font-sans font-semibold text-sm">Calibrated Image Metadata</h4>
-                  <div className="flex justify-between text-slate-400">
-                    <span>Resolution:</span>
-                    <span className="text-slate-200">{calibratedData.width} × {calibratedData.height} px</span>
-                  </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>Target Scale Ratio:</span>
-                    <span className="text-teal-300 font-bold">{calibratedData.ppm} px/mm</span>
-                  </div>
-                  <div className="flex justify-between text-slate-400">
-                    <span>Physical Reference:</span>
-                    <span className="text-slate-200">{calibratedData.coinDiameterMm} mm Coin</span>
-                  </div>
-                </div>
-
-                <div className="p-5 rounded-2xl bg-teal-500/10 border border-teal-500/30">
-                  <h4 className="text-teal-300 font-semibold text-xs mb-1">Ready for Phase 3 Pipeline</h4>
-                  <p className="text-xs text-slate-300 leading-relaxed">
-                    FastAPI will now perform Otsu segmentation to isolate the lesion contour, extract dual-axis asymmetry, measure perimeter irregularity, and calculate exact millimeter diameter.
-                  </p>
-                </div>
-              </div>
-            </div>
+        {/* Placeholder for Phase 4 */}
+        {activeTab === "temporal" && abcdeResult && (
+          <div className="p-12 text-center rounded-3xl bg-slate-900 border border-slate-800">
+            <History className="w-12 h-12 text-teal-400 mx-auto mb-4 animate-bounce" />
+            <h3 className="text-lg font-bold text-white">Ready for Phase 4</h3>
+            <p className="text-xs text-slate-400 mt-2 max-w-md mx-auto">
+              Primary Lesion Profile extracted ({abcdeResult.diameter_mm}mm, {abcdeResult.asymmetry_class}). In Phase 4 we will build the side-by-side progression comparison and difference heatmaps!
+            </p>
           </div>
         )}
       </section>
