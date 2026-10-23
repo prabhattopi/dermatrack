@@ -9,7 +9,8 @@ import {
   RefreshCw, 
   ArrowRight,
   Eye,
-  Maximize2
+  FileText,
+  Printer
 } from "lucide-react";
 
 interface CalibrationData {
@@ -39,15 +40,22 @@ interface ABCDEResult {
 
 interface Props {
   calibration: CalibrationData;
+  isSingleScan: boolean;
   onProceedToTemporal: (result: ABCDEResult) => void;
   onBackToCalibration: () => void;
 }
 
-export default function ABCDEViewer({ calibration, onProceedToTemporal, onBackToCalibration }: Props) {
+export default function ABCDEViewer({ 
+  calibration, 
+  isSingleScan, 
+  onProceedToTemporal, 
+  onBackToCalibration 
+}: Props) {
   const [loading, setLoading] = useState<boolean>(true);
   const [analysis, setAnalysis] = useState<ABCDEResult | null>(null);
   const [viewMode, setViewMode] = useState<"overlay" | "original" | "mask">("overlay");
   const [error, setError] = useState<string | null>(null);
+  const [showSingleReport, setShowSingleReport] = useState<boolean>(false);
 
   const runAnalysis = useCallback(async () => {
     setLoading(true);
@@ -126,7 +134,7 @@ export default function ABCDEViewer({ calibration, onProceedToTemporal, onBackTo
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-slate-800 gap-4">
         <div>
           <span className="text-[11px] uppercase tracking-wider font-mono text-teal-400">
-            OpenCV ABCDE Metric Extraction
+            OpenCV ABCDE Metric Extraction {isSingleScan && "• Baseline Mode"}
           </span>
           <h2 className="text-2xl font-bold text-white mt-1">Lesion Biometric Profile</h2>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -154,9 +162,9 @@ export default function ABCDEViewer({ calibration, onProceedToTemporal, onBackTo
         </div>
       </div>
 
-      {/* Main Grid: Visual Viewport & Scorecard */}
+      {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left: Visual Segmentation Viewport */}
+        {/* Left: Visual Viewport */}
         <div className="lg:col-span-6 flex flex-col items-center justify-between bg-slate-950 rounded-2xl border border-slate-800 p-4">
           <div className="flex items-center gap-2 mb-3 w-full justify-between">
             <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
@@ -298,15 +306,26 @@ export default function ABCDEViewer({ calibration, onProceedToTemporal, onBackTo
             </div>
           </div>
 
-          {/* Action Buttons */}
+          {/* Action Buttons: DYNAMIC BASED ON SINGLE VS LONGITUDINAL */}
           <div className="space-y-3 pt-2">
-            <button
-              onClick={() => onProceedToTemporal(analysis)}
-              className="w-full py-3.5 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-teal-500/20 transition-all active:scale-[0.98]"
-            >
-              Stage for Longitudinal Evolution (Phase 4)
-              <ArrowRight className="w-4 h-4" />
-            </button>
+            {isSingleScan ? (
+              <button
+                onClick={() => setShowSingleReport(true)}
+                className="w-full py-3.5 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-teal-500/20 transition-all active:scale-[0.98]"
+              >
+                <FileText className="w-4 h-4" />
+                Generate Baseline Doctor Intake Report (Print / PDF)
+              </button>
+            ) : (
+              <button
+                onClick={() => onProceedToTemporal(analysis)}
+                className="w-full py-3.5 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 text-slate-950 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-teal-500/20 transition-all active:scale-[0.98]"
+              >
+                Compare with Follow-up (Phase 4 Diff)
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            )}
+
             <button
               onClick={onBackToCalibration}
               className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-800 text-slate-400 text-xs font-medium border border-slate-800 transition-colors"
@@ -316,6 +335,99 @@ export default function ABCDEViewer({ calibration, onProceedToTemporal, onBackTo
           </div>
         </div>
       </div>
+
+      {/* Single Scan Baseline Report Modal */}
+      {showSingleReport && (
+        <div className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white text-slate-900 rounded-2xl max-w-3xl w-full p-8 shadow-2xl space-y-6 my-8 font-sans">
+            <div className="flex justify-between items-start border-b border-slate-200 pb-4">
+              <div>
+                <span className="text-[11px] font-mono font-bold tracking-widest text-teal-700 uppercase">
+                  CodeTheCure 2026 • Oncology Clinical Intake
+                </span>
+                <h1 className="text-2xl font-bold text-slate-950 mt-1">
+                  DermaTrack Baseline Lesion Profile
+                </h1>
+                <p className="text-xs text-slate-500">
+                  Initial biometric record established for longitudinal melanoma surveillance.
+                </p>
+              </div>
+              <button
+                onClick={() => setShowSingleReport(false)}
+                className="text-slate-400 hover:text-slate-800 text-sm font-bold p-1"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+              <div>
+                <span className="text-slate-500 block">Assessment Target:</span>
+                <span className="font-bold text-slate-800">Primary Pigmented Lesion</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Record Type:</span>
+                <span className="font-bold text-slate-800">Baseline (Month 0)</span>
+              </div>
+              <div>
+                <span className="text-slate-500 block">Calibrated Scale:</span>
+                <span className="font-bold text-teal-700">{calibration.ppm} px/mm</span>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 mb-2 uppercase tracking-wide">
+                Biometric ABCDE Findings
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                <div className="p-3 rounded-lg border border-slate-200 bg-white">
+                  <span className="text-slate-500 block font-medium">Asymmetry (A):</span>
+                  <span className="text-base font-bold text-slate-900">{analysis.asymmetry_score}%</span>
+                  <span className="text-[11px] text-slate-600 block mt-0.5">{analysis.asymmetry_class}</span>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 bg-white">
+                  <span className="text-slate-500 block font-medium">Border (B):</span>
+                  <span className="text-base font-bold text-slate-900">{analysis.border_compactness}</span>
+                  <span className="text-[11px] text-slate-600 block mt-0.5">{analysis.border_class}</span>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 bg-white">
+                  <span className="text-slate-500 block font-medium">Color (C):</span>
+                  <span className="text-base font-bold text-slate-900">σ = {analysis.color_variegation_score}</span>
+                  <span className="text-[11px] text-slate-600 block mt-0.5">{analysis.color_shades[0]}</span>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 bg-white">
+                  <span className="text-slate-500 block font-medium">Diameter (D):</span>
+                  <span className="text-base font-bold text-rose-700">{analysis.diameter_mm} mm</span>
+                  <span className="text-[11px] text-slate-600 block mt-0.5">Cutoff: &gt;6.0mm</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 text-xs space-y-1.5">
+              <span className="font-bold text-slate-900 block">Clinical Summary & Next Steps:</span>
+              <p className="text-slate-600 leading-relaxed">
+                {analysis.clinical_summary} Re-capture this exact lesion in 3 months with the same coin standard to evaluate the <strong>E (Evolution)</strong> parameter.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+              <button
+                onClick={() => window.print()}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow"
+              >
+                <Printer className="w-4 h-4" />
+                Print / Save PDF
+              </button>
+              <button
+                onClick={() => setShowSingleReport(false)}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl"
+              >
+                Close Report
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

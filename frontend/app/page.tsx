@@ -197,9 +197,11 @@ export default function Dashboard() {
           <CaptureWorkspace onCalibrationComplete={handleCalibrationComplete} />
         )}
 
+      {/* Tab 2: ABCDE Extraction */}
         {activeTab === "segmentation" && calibratedT1 && (
           <ABCDEViewer
             calibration={calibratedT1}
+            isSingleScan={!calibratedT2}
             onProceedToTemporal={handleProceedToTemporal}
             onBackToCalibration={() => setActiveTab("capture")}
           />

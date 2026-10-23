@@ -420,7 +420,6 @@ async def analyze_longitudinal(
         c2x = int(M2["m10"] / max(1, M2["m00"])) if M2["m00"] != 0 else bbox2[0] + bbox2[2] // 2
         c2y = int(M2["m01"] / max(1, M2["m00"])) if M2["m00"] != 0 else bbox2[1] + bbox2[3] // 2
 
-        # Shift T1 contour to align centroid with T2 for true morphometric diff
         shift_x = c2x - c1x
         shift_y = c2y - c1y
         cnt1_aligned = cnt1 + [shift_x, shift_y]
@@ -435,17 +434,16 @@ async def analyze_longitudinal(
         # Create Differential Heatmap on T2 image
         heatmap_overlay = img2.copy()
         
-        # Color stable baseline core in deep blue/teal tint
-        heatmap_overlay[stable_mask == 255] = cv2.addWeighted(
-            heatmap_overlay[stable_mask == 255], 0.4,
-            np.full_like(heatmap_overlay[stable_mask == 255], (255, 120, 0)), 0.6, 0
-        )
-        
-        # Color newly expanded margin in HOT CRIMSON RED
-        heatmap_overlay[growth_mask == 255] = cv2.addWeighted(
-            heatmap_overlay[growth_mask == 255], 0.2,
-            np.full_like(heatmap_overlay[growth_mask == 255], (0, 0, 255)), 0.8, 0
-        )
+        # Crash-proof vectorized NumPy blending (No cv2.addWeighted crash)
+        if np.any(stable_mask == 255):
+            orig_stable = heatmap_overlay[stable_mask == 255].astype(np.float32)
+            tint_blue = np.array([255, 120, 0], dtype=np.float32)
+            heatmap_overlay[stable_mask == 255] = np.clip(orig_stable * 0.4 + tint_blue * 0.6, 0, 255).astype(np.uint8)
+
+        if np.any(growth_mask == 255):
+            orig_growth = heatmap_overlay[growth_mask == 255].astype(np.float32)
+            tint_red = np.array([0, 0, 255], dtype=np.float32)
+            heatmap_overlay[growth_mask == 255] = np.clip(orig_growth * 0.2 + tint_red * 0.8, 0, 255).astype(np.uint8)
 
         # Draw contour boundaries
         cv2.drawContours(heatmap_overlay, [cnt1_aligned], -1, (255, 200, 0), 2)  # T1 baseline = Cyan/Yellow

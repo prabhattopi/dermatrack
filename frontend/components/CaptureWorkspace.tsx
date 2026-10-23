@@ -7,10 +7,10 @@ import {
   RefreshCw, 
   Disc, 
   Sparkles, 
-  ArrowRight, 
   AlertTriangle,
-  History,
-  CheckCircle2
+  CheckCircle2,
+  Minimize2,
+  ZoomIn
 } from "lucide-react";
 
 interface CalibrationData {
@@ -35,15 +35,14 @@ const PRESET_COINS = [
 ];
 
 export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
-  const [workflow, setWorkflow] = useState<"longitudinal" | "single">("longitudinal");
-  const [inputTab, setInputTab] = useState<"presets" | "upload" | "camera">("presets");
+  const [workflow, setWorkflow] = useState<"longitudinal" | "single">("single");
+  const [inputTab, setInputTab] = useState<"upload" | "presets" | "camera">("upload");
   const [selectedCoinMm, setSelectedCoinMm] = useState<number>(25.0);
 
-  // Active Scan 1 State
+  // Calibration Data
   const [scan1Data, setScan1Data] = useState<CalibrationData | null>(null);
   const [scan2Data, setScan2Data] = useState<CalibrationData | null>(null);
-  
-  // Active calibrator image
+
   const [activeCalibrating, setActiveCalibrating] = useState<"scan1" | "scan2">("scan1");
   const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
   const [currentFilename, setCurrentFilename] = useState<string | null>(null);
@@ -52,9 +51,9 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
   const [uploading, setUploading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Calibration Ring
+  // Ring Calibration Geometry (Controlled Bounds: 30px to 320px)
   const [ringDiameterPx, setRingDiameterPx] = useState<number>(120);
-  const [ringPos, setRingPos] = useState<{ x: number; y: number }>({ x: 30, y: 75 });
+  const [ringPos, setRingPos] = useState<{ x: number; y: number }>({ x: 30, y: 70 });
   const calculatedPPM = parseFloat((ringDiameterPx / selectedCoinMm).toFixed(2));
 
   // Camera Management
@@ -135,106 +134,23 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
       setCurrentFilename(data.image_filename);
       setImgDimensions({ width: data.width, height: data.height });
 
-      if (data.detected_circle) {
+      // Capped auto-detection to prevent giant 800px rings
+      if (data.detected_circle && data.detected_circle.diameter_px <= 300 && data.detected_circle.diameter_px >= 40) {
         setRingDiameterPx(data.detected_circle.diameter_px);
         setRingPos({
           x: (data.detected_circle.x / data.width) * 100,
           y: (data.detected_circle.y / data.height) * 100,
         });
       } else {
+        // Safe default: 120px ring placed at bottom-left corner
         setRingDiameterPx(120);
-        setRingPos({ x: 30, y: 75 });
+        setRingPos({ x: 25, y: 75 });
       }
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : "Upload error");
     } finally {
       setUploading(false);
     }
-  };
-
-  // Generate Photorealistic Dermoscopic Skin Lesion Benchmark
-  const generateRealisticSkinCanvas = (type: "baseline_regular" | "evolved_melanoma_suspect") => {
-    stopCamera();
-    const canvas = document.createElement("canvas");
-    canvas.width = 600;
-    canvas.height = 600;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // Organic skin tone gradient
-    const skinGrad = ctx.createRadialGradient(300, 300, 50, 300, 300, 420);
-    skinGrad.addColorStop(0, "#e8beab");
-    skinGrad.addColorStop(1, "#d1a28a");
-    ctx.fillStyle = skinGrad;
-    ctx.fillRect(0, 0, 600, 600);
-
-    // Realistic skin pores and micro-texture
-    for (let i = 0; i < 900; i++) {
-      ctx.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.08)" : "rgba(100,60,40,0.04)";
-      ctx.fillRect(Math.random() * 600, Math.random() * 600, 1.5, 1.5);
-    }
-
-    // 25mm Reference Coin
-    const coinX = 180;
-    const coinY = 450;
-    const coinR = 60;
-    ctx.beginPath();
-    ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
-    ctx.fillStyle = "#b5871f";
-    ctx.fill();
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = "#7c5506";
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(coinX, coinY, coinR - 8, 0, Math.PI * 2);
-    ctx.fillStyle = "#d4af37";
-    ctx.fill();
-
-    ctx.fillStyle = "#4a3202";
-    ctx.font = "bold 16px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("25 mm", coinX, coinY);
-
-    const moleX = 400;
-    const moleY = 220;
-
-    if (type === "baseline_regular") {
-      // Regular Benign Nevus: Uniform, circular, soft reticular border
-      ctx.beginPath();
-      ctx.arc(moleX, moleY, 20, 0, Math.PI * 2);
-      ctx.fillStyle = "#4a2412";
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(moleX - 2, moleY - 1, 12, 0, Math.PI * 2);
-      ctx.fillStyle = "#331608";
-      ctx.fill();
-    } else {
-      // Evolved Dysplastic Nevus / Melanoma Suspect: Multi-lobular, notched, dark core
-      ctx.beginPath();
-      ctx.ellipse(moleX + 10, moleY - 6, 38, 28, Math.PI / 4, 0, Math.PI * 2);
-      ctx.fillStyle = "#542410";
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.ellipse(moleX - 12, moleY + 12, 28, 22, -Math.PI / 6, 0, Math.PI * 2);
-      ctx.fillStyle = "#260e05";
-      ctx.fill();
-
-      ctx.beginPath();
-      ctx.arc(moleX, moleY, 15, 0, Math.PI * 2);
-      ctx.fillStyle = "#0c0401";
-      ctx.fill();
-    }
-
-    canvas.toBlob((blob) => {
-      if (blob) {
-        const file = new File([blob], `${type}.png`, { type: "image/png" });
-        handleFileUpload(file);
-      }
-    }, "image/png");
   };
 
   const confirmActiveCalibration = () => {
@@ -254,7 +170,6 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     } else {
       if (activeCalibrating === "scan1") {
         setScan1Data(data);
-        // Reset view for scan 2
         setCurrentImageUrl(null);
         setCurrentFilename(null);
         setActiveCalibrating("scan2");
@@ -269,29 +184,13 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
-      {/* Workflow Switcher: Single vs Longitudinal */}
+      {/* Top Switcher */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-slate-800 gap-4">
         <div>
           <span className="text-[10px] font-mono uppercase tracking-widest text-teal-400">
             Select Evaluation Workflow
           </span>
           <div className="flex items-center gap-3 mt-1.5">
-            <button
-              onClick={() => {
-                setWorkflow("longitudinal");
-                setActiveCalibrating("scan1");
-                setScan1Data(null);
-                setScan2Data(null);
-                setCurrentImageUrl(null);
-              }}
-              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
-                workflow === "longitudinal"
-                  ? "bg-teal-500 text-slate-950 border-teal-500 shadow-md shadow-teal-500/20"
-                  : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
-              }`}
-            >
-              Longitudinal Comparison (2 Photos: T1 + T2)
-            </button>
             <button
               onClick={() => {
                 setWorkflow("single");
@@ -308,12 +207,28 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             >
               Single Baseline Scan (1 Photo)
             </button>
+            <button
+              onClick={() => {
+                setWorkflow("longitudinal");
+                setActiveCalibrating("scan1");
+                setScan1Data(null);
+                setScan2Data(null);
+                setCurrentImageUrl(null);
+              }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                workflow === "longitudinal"
+                  ? "bg-teal-500 text-slate-950 border-teal-500 shadow-md shadow-teal-500/20"
+                  : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+              }`}
+            >
+              Longitudinal Comparison (2 Photos: T1 + T2)
+            </button>
           </div>
         </div>
 
         {/* Reference Coin Selector */}
         <div className="flex items-center gap-2.5 bg-slate-950 p-2 px-3 rounded-xl border border-slate-800">
-          <span className="text-xs text-slate-400 font-medium">Reference Coin:</span>
+          <span className="text-xs text-slate-400 font-medium">Reference Standard:</span>
           <select
             value={selectedCoinMm}
             onChange={(e) => setSelectedCoinMm(parseFloat(e.target.value))}
@@ -328,7 +243,7 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
         </div>
       </div>
 
-      {/* Longitudinal Staging Indicator (Only in Longitudinal Workflow) */}
+      {/* Longitudinal Indicator */}
       {workflow === "longitudinal" && (
         <div className="grid grid-cols-2 gap-4">
           <div className={`p-4 rounded-2xl border transition-all ${
@@ -369,20 +284,8 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
         </div>
       )}
 
-      {/* Ingestion Methods */}
+      {/* Ingestion Tabs */}
       <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 w-fit">
-        <button
-          onClick={() => {
-            stopCamera();
-            setInputTab("presets");
-          }}
-          className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
-            inputTab === "presets" ? "bg-teal-500 text-slate-950 font-semibold" : "text-slate-400 hover:text-white"
-          }`}
-        >
-          <Sparkles className="w-4 h-4" />
-          1-Click Benchmark Datasets
-        </button>
         <button
           onClick={() => {
             stopCamera();
@@ -417,49 +320,6 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Left Viewport */}
         <div className="lg:col-span-8 flex flex-col items-center justify-center min-h-[460px] bg-slate-950 rounded-2xl border border-slate-800 relative overflow-hidden">
-          {inputTab === "presets" && !currentImageUrl && (
-            <div className="p-8 w-full max-w-lg space-y-4 text-center">
-              <h3 className="text-base font-bold text-white">
-                Load Realistic Clinical Dermoscopic Presets
-              </h3>
-              <p className="text-xs text-slate-400 mb-6">
-                Standard ₹5 (25mm) scale calibrated benchmark cases for hackathon demonstration.
-              </p>
-
-              <div className="grid grid-cols-1 gap-4">
-                <button
-                  onClick={() => generateRealisticSkinCanvas("baseline_regular")}
-                  className="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-teal-500/60 text-left transition-all hover:translate-y-[-2px]"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-teal-300">
-                      Preset 1: Regular Benign Nevus (Baseline)
-                    </span>
-                    <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Regular Nevus</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    Uniform circular border, homogeneous pigment distribution (~5.2mm diameter).
-                  </p>
-                </button>
-
-                <button
-                  onClick={() => generateRealisticSkinCanvas("evolved_melanoma_suspect")}
-                  className="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-rose-500/60 text-left transition-all hover:translate-y-[-2px]"
-                >
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-rose-300">
-                      Preset 2: Evolved Dysplastic Lesion (Melanoma Suspect)
-                    </span>
-                    <span className="text-[10px] bg-rose-950/80 border border-rose-800 text-rose-300 px-2 py-0.5 rounded">High Risk</span>
-                  </div>
-                  <p className="text-xs text-slate-400 mt-2">
-                    Multi-tone pigmentation, irregular lobulated border, rapid radial growth (&gt;9.5mm diameter).
-                  </p>
-                </button>
-              </div>
-            </div>
-          )}
-
           {inputTab === "upload" && !currentImageUrl && (
             <label className="w-full h-full flex flex-col items-center justify-center p-8 cursor-pointer hover:bg-slate-900/50 transition-colors">
               <div className="w-16 h-16 rounded-2xl bg-teal-500/10 text-teal-400 flex items-center justify-center mb-4 border border-teal-500/20">
@@ -469,7 +329,7 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
                 Drop skin image here, or <span className="text-teal-400 underline">browse</span>
               </p>
               <p className="text-xs text-slate-500 mt-2 text-center max-w-sm">
-                Ensure mole and reference coin are clearly visible without glare.
+                Supports clinical JPG/PNG dermoscopy or phone snapshots.
               </p>
               <input
                 type="file"
@@ -500,17 +360,17 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             </div>
           )}
 
-          {/* Active Calibration Overlay */}
+          {/* Active Calibration Overlay Viewport */}
           {currentImageUrl && (
-            <div className="relative w-full h-full flex items-center justify-center p-2 select-none">
+            <div className="relative w-full h-full flex items-center justify-center p-2 select-none overflow-hidden">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={currentImageUrl}
                 alt="Calibrating skin scan"
-                className="max-h-[480px] w-auto object-contain rounded-xl shadow-lg"
+                className="max-h-[480px] w-auto object-contain rounded-xl shadow-lg pointer-events-none"
               />
 
-              {/* Draggable Calibration Ring */}
+              {/* Draggable & Resizable Amber Calibration Ring */}
               <div
                 style={{
                   width: `${ringDiameterPx}px`,
@@ -521,6 +381,8 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
                 }}
                 className="absolute rounded-full border-2 border-amber-400 bg-amber-400/20 flex items-center justify-center shadow-lg shadow-amber-500/20 cursor-move pointer-events-auto"
                 onMouseDown={(e) => {
+                  // Ignore if clicking the resize handle
+                  if ((e.target as HTMLElement).dataset.handle) return;
                   const parent = e.currentTarget.parentElement?.getBoundingClientRect();
                   if (!parent) return;
                   const onMouseMove = (moveEvent: MouseEvent) => {
@@ -536,8 +398,32 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
                   window.addEventListener("mouseup", onMouseUp);
                 }}
               >
+                {/* Center Anchor Point */}
                 <div className="w-2.5 h-2.5 rounded-full bg-amber-400"></div>
-                <span className="absolute -top-6 text-[10px] font-mono font-bold text-amber-300 bg-slate-950/90 px-2 py-0.5 rounded border border-amber-500/30 whitespace-nowrap">
+
+                {/* Direct Visual Resize Handle Dot on Ring Rim */}
+                <div
+                  data-handle="resize"
+                  title="Drag to resize ring"
+                  className="absolute -right-1.5 w-4 h-4 rounded-full bg-white border-2 border-amber-500 shadow-md cursor-ew-resize flex items-center justify-center"
+                  onMouseDown={(e) => {
+                    e.stopPropagation();
+                    const startX = e.clientX;
+                    const startDiam = ringDiameterPx;
+                    const onMouseMove = (moveEvent: MouseEvent) => {
+                      const delta = (moveEvent.clientX - startX) * 2;
+                      setRingDiameterPx(Math.min(Math.max(startDiam + delta, 40), 300));
+                    };
+                    const onMouseUp = () => {
+                      window.removeEventListener("mousemove", onMouseMove);
+                      window.removeEventListener("mouseup", onMouseUp);
+                    };
+                    window.addEventListener("mousemove", onMouseMove);
+                    window.addEventListener("mouseup", onMouseUp);
+                  }}
+                />
+
+                <span className="absolute -top-6 text-[10px] font-mono font-bold text-amber-300 bg-slate-950/90 px-2 py-0.5 rounded border border-amber-500/30 whitespace-nowrap pointer-events-none">
                   {selectedCoinMm}mm Reference Target
                 </span>
               </div>
@@ -552,7 +438,7 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
           )}
         </div>
 
-        {/* Right Column: Controls */}
+        {/* Right Controls */}
         <div className="lg:col-span-4 flex flex-col justify-between space-y-6 bg-slate-950/60 border border-slate-800/80 p-6 rounded-2xl">
           <div>
             <div className="flex items-center gap-2 mb-2">
@@ -562,9 +448,32 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
               </h3>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Drag the amber ring over the reference coin. Adjust the diameter slider until it matches the outer coin edge to lock true millimeter scale.
+              Drag the amber circle over the coin/marker. Adjust diameter using slider or the <strong className="text-amber-300">white edge handle</strong>.
             </p>
 
+            {/* Quick Preset Zoom Helpers */}
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setRingDiameterPx(80)}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 hover:text-white hover:border-slate-700 flex items-center gap-1"
+              >
+                <Minimize2 className="w-3 h-3" /> Small (80px)
+              </button>
+              <button
+                onClick={() => setRingDiameterPx(130)}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-teal-300 border-teal-500/40 flex items-center gap-1"
+              >
+                Standard (130px)
+              </button>
+              <button
+                onClick={() => setRingDiameterPx(220)}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 hover:text-white hover:border-slate-700 flex items-center gap-1"
+              >
+                <ZoomIn className="w-3 h-3" /> Large (220px)
+              </button>
+            </div>
+
+            {/* Diameter Slider */}
             <div className="mt-6 space-y-3">
               <div className="flex justify-between text-xs font-mono">
                 <span className="text-slate-400">Marker Ring Diameter:</span>
@@ -580,9 +489,10 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
               />
             </div>
 
+            {/* Scale Ratio Readout */}
             <div className="mt-6 p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2 font-mono text-xs">
               <div className="flex justify-between">
-                <span className="text-slate-400">Physical Size:</span>
+                <span className="text-slate-400">Physical Standard:</span>
                 <span className="text-white font-semibold">{selectedCoinMm} mm</span>
               </div>
               <div className="flex justify-between">
