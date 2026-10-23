@@ -5,14 +5,15 @@ import {
   Activity, 
   CheckCircle2, 
   AlertCircle, 
-  RefreshCw,
-  Camera,
-  Layers,
-  History,
-  Check
+  RefreshCw, 
+  Camera, 
+  Layers, 
+  History, 
+  Check 
 } from "lucide-react";
 import CaptureWorkspace from "@/components/CaptureWorkspace";
 import ABCDEViewer from "@/components/ABCDEViewer";
+import LongitudinalDiff from "@/components/LongitudinalDiff";
 
 interface BackendStatus {
   status: string;
@@ -52,7 +53,8 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<"capture" | "segmentation" | "temporal">("capture");
   
   // Stored state
-  const [calibratedData, setCalibratedData] = useState<CalibrationResult | null>(null);
+  const [calibratedT1, setCalibratedT1] = useState<CalibrationResult | null>(null);
+  const [calibratedT2, setCalibratedT2] = useState<CalibrationResult | null>(null);
   const [abcdeResult, setAbcdeResult] = useState<ABCDEResult | null>(null);
 
   const checkConnection = async () => {
@@ -73,13 +75,9 @@ export default function Dashboard() {
     checkConnection();
   }, []);
 
-  const handleCalibrationComplete = (data: { imageUrl: string; width: number; height: number; ppm: number; coinDiameterMm: number }) => {
-    // Extract filename from URL
-    const filename = data.imageUrl.split("/").pop() || "";
-    setCalibratedData({
-      ...data,
-      imageFilename: filename
-    });
+  const handleCalibrationComplete = (t1: CalibrationResult, t2?: CalibrationResult | null) => {
+    setCalibratedT1(t1);
+    setCalibratedT2(t2 || null);
     setActiveTab("segmentation");
   };
 
@@ -88,9 +86,16 @@ export default function Dashboard() {
     setActiveTab("temporal");
   };
 
+  const handleReset = () => {
+    setCalibratedT1(null);
+    setCalibratedT2(null);
+    setAbcdeResult(null);
+    setActiveTab("capture");
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-6 md:p-10">
-      {/* Top Header */}
+      {/* Header */}
       <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-start md:items-center pb-8 border-b border-slate-800 gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -143,9 +148,9 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Module Progression Tabs */}
+      {/* Tabs */}
       <section className="max-w-7xl mx-auto mt-8">
-        <div className="flex items-center gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-3 mb-6">
           <button
             onClick={() => setActiveTab("capture")}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold border transition-all ${
@@ -156,12 +161,12 @@ export default function Dashboard() {
           >
             <Camera className="w-4 h-4" />
             1. Capture & Calibrate
-            {calibratedData && <Check className="w-3.5 h-3.5 text-emerald-400 ml-1" />}
+            {calibratedT1 && <Check className="w-3.5 h-3.5 text-emerald-400 ml-1" />}
           </button>
 
           <button
             onClick={() => setActiveTab("segmentation")}
-            disabled={!calibratedData}
+            disabled={!calibratedT1}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
               activeTab === "segmentation"
                 ? "bg-teal-500/10 border-teal-500 text-teal-300 shadow-sm shadow-teal-500/20"
@@ -183,33 +188,30 @@ export default function Dashboard() {
             }`}
           >
             <History className="w-4 h-4" />
-            3. Longitudinal Diff (Phase 4)
+            3. Longitudinal Diff
           </button>
         </div>
 
-        {/* Phase 2: Active Calibration Workspace */}
+        {/* Tab Views */}
         {activeTab === "capture" && (
           <CaptureWorkspace onCalibrationComplete={handleCalibrationComplete} />
         )}
 
-        {/* Phase 3: Active ABCDE Extraction Viewport */}
-        {activeTab === "segmentation" && calibratedData && (
+        {activeTab === "segmentation" && calibratedT1 && (
           <ABCDEViewer
-            calibration={calibratedData}
+            calibration={calibratedT1}
             onProceedToTemporal={handleProceedToTemporal}
             onBackToCalibration={() => setActiveTab("capture")}
           />
         )}
 
-        {/* Placeholder for Phase 4 */}
-        {activeTab === "temporal" && abcdeResult && (
-          <div className="p-12 text-center rounded-3xl bg-slate-900 border border-slate-800">
-            <History className="w-12 h-12 text-teal-400 mx-auto mb-4 animate-bounce" />
-            <h3 className="text-lg font-bold text-white">Ready for Phase 4</h3>
-            <p className="text-xs text-slate-400 mt-2 max-w-md mx-auto">
-              Primary Lesion Profile extracted ({abcdeResult.diameter_mm}mm, {abcdeResult.asymmetry_class}). In Phase 4 we will build the side-by-side progression comparison and difference heatmaps!
-            </p>
-          </div>
+        {activeTab === "temporal" && calibratedT1 && abcdeResult && (
+          <LongitudinalDiff
+            baselineCalibration={calibratedT1}
+            baselineABCDE={abcdeResult}
+            followupCalibration={calibratedT2}
+            onReset={handleReset}
+          />
         )}
       </section>
     </main>

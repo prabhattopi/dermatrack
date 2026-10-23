@@ -6,13 +6,16 @@ import {
   Upload, 
   RefreshCw, 
   Disc, 
-  Sparkles,
-  ArrowRight,
-  AlertTriangle
+  Sparkles, 
+  ArrowRight, 
+  AlertTriangle,
+  History,
+  CheckCircle2
 } from "lucide-react";
 
 interface CalibrationData {
   imageUrl: string;
+  imageFilename: string;
   width: number;
   height: number;
   ppm: number;
@@ -20,7 +23,7 @@ interface CalibrationData {
 }
 
 interface Props {
-  onCalibrationComplete: (data: CalibrationData) => void;
+  onCalibrationComplete: (data: CalibrationData, followup?: CalibrationData | null) => void;
 }
 
 const PRESET_COINS = [
@@ -32,29 +35,35 @@ const PRESET_COINS = [
 ];
 
 export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
-  const [mode, setMode] = useState<"presets" | "upload" | "camera">("presets");
+  const [workflow, setWorkflow] = useState<"longitudinal" | "single">("longitudinal");
+  const [inputTab, setInputTab] = useState<"presets" | "upload" | "camera">("presets");
   const [selectedCoinMm, setSelectedCoinMm] = useState<number>(25.0);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Active Scan 1 State
+  const [scan1Data, setScan1Data] = useState<CalibrationData | null>(null);
+  const [scan2Data, setScan2Data] = useState<CalibrationData | null>(null);
+  
+  // Active calibrator image
+  const [activeCalibrating, setActiveCalibrating] = useState<"scan1" | "scan2">("scan1");
+  const [currentImageUrl, setCurrentImageUrl] = useState<string | null>(null);
+  const [currentFilename, setCurrentFilename] = useState<string | null>(null);
   const [imgDimensions, setImgDimensions] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
-  // Camera Refs - Dedicated stream ref so tracks can be killed even if DOM unmounts
+  const [uploading, setUploading] = useState<boolean>(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Calibration Ring
+  const [ringDiameterPx, setRingDiameterPx] = useState<number>(120);
+  const [ringPos, setRingPos] = useState<{ x: number; y: number }>({ x: 30, y: 75 });
+  const calculatedPPM = parseFloat((ringDiameterPx / selectedCoinMm).toFixed(2));
+
+  // Camera Management
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
-  // Calibration Ring State
-  const [ringDiameterPx, setRingDiameterPx] = useState<number>(120);
-  const [ringPos, setRingPos] = useState<{ x: number; y: number }>({ x: 30, y: 75 });
-
-  const calculatedPPM = parseFloat((ringDiameterPx / selectedCoinMm).toFixed(2));
-
-  // Stop camera tracks cleanly
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => {
-        track.stop();
-      });
+      streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
     }
     if (videoRef.current) {
@@ -62,33 +71,27 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     }
   }, []);
 
-  // Start camera and attach stream
   const startCamera = async () => {
-    stopCamera(); // Pehle se koi purani stream ho to stop karein
+    stopCamera();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } }
       });
       streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+      if (videoRef.current) videoRef.current.srcObject = stream;
     } catch (err) {
       setErrorMessage("Camera access denied or unavailable: " + String(err));
     }
   };
 
-  // Switch mode effect: Agar camera mode nahi hai to hardware turant stop hoga
   useEffect(() => {
-    if (mode === "camera" && !imageUrl) {
+    if (inputTab === "camera" && !currentImageUrl) {
       startCamera();
     } else {
       stopCamera();
     }
-    return () => {
-      stopCamera();
-    };
-  }, [mode, imageUrl, stopCamera]);
+    return () => stopCamera();
+  }, [inputTab, currentImageUrl, stopCamera]);
 
   const captureCameraFrame = () => {
     if (!videoRef.current) return;
@@ -98,21 +101,16 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-
-    // Frame capture hote hi camera band kar do
     stopCamera();
-
     canvas.toBlob((blob) => {
       if (blob) {
-        const file = new File([blob], "camera-capture.png", { type: "image/png" });
+        const file = new File([blob], "camera-frame.png", { type: "image/png" });
         handleFileUpload(file);
       }
     }, "image/png");
   };
 
-  // Upload to Backend
   const handleFileUpload = async (file: File) => {
-    // Agar camera chal raha tha to upload start hote hi stop ho jaye
     stopCamera();
     setUploading(true);
     setErrorMessage(null);
@@ -129,32 +127,33 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => null);
-        throw new Error(errJson?.detail || `Server responded with status ${res.status}`);
+        throw new Error(errJson?.detail || `Server error: ${res.status}`);
       }
 
       const data = await res.json();
-      setImageUrl(data.image_url);
+      setCurrentImageUrl(data.image_url);
+      setCurrentFilename(data.image_filename);
       setImgDimensions({ width: data.width, height: data.height });
 
       if (data.detected_circle) {
         setRingDiameterPx(data.detected_circle.diameter_px);
-        const percentX = (data.detected_circle.x / data.width) * 100;
-        const percentY = (data.detected_circle.y / data.height) * 100;
-        setRingPos({ x: percentX, y: percentY });
+        setRingPos({
+          x: (data.detected_circle.x / data.width) * 100,
+          y: (data.detected_circle.y / data.height) * 100,
+        });
       } else {
         setRingDiameterPx(120);
         setRingPos({ x: 30, y: 75 });
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Upload error";
-      setErrorMessage(msg);
+      setErrorMessage(err instanceof Error ? err.message : "Upload error");
     } finally {
       setUploading(false);
     }
   };
 
-  // Benchmark PNG generator
-  const generateBenchmarkPNG = (isEvolving: boolean) => {
+  // Generate Photorealistic Dermoscopic Skin Lesion Benchmark
+  const generateRealisticSkinCanvas = (type: "baseline_regular" | "evolved_melanoma_suspect") => {
     stopCamera();
     const canvas = document.createElement("canvas");
     canvas.width = 600;
@@ -162,18 +161,23 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.fillStyle = "#e0b59f";
+    // Organic skin tone gradient
+    const skinGrad = ctx.createRadialGradient(300, 300, 50, 300, 300, 420);
+    skinGrad.addColorStop(0, "#e8beab");
+    skinGrad.addColorStop(1, "#d1a28a");
+    ctx.fillStyle = skinGrad;
     ctx.fillRect(0, 0, 600, 600);
 
-    for (let i = 0; i < 400; i++) {
-      ctx.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.03)";
-      ctx.fillRect(Math.random() * 600, Math.random() * 600, 2, 2);
+    // Realistic skin pores and micro-texture
+    for (let i = 0; i < 900; i++) {
+      ctx.fillStyle = Math.random() > 0.5 ? "rgba(255,255,255,0.08)" : "rgba(100,60,40,0.04)";
+      ctx.fillRect(Math.random() * 600, Math.random() * 600, 1.5, 1.5);
     }
 
+    // 25mm Reference Coin
     const coinX = 180;
     const coinY = 450;
     const coinR = 60;
-
     ctx.beginPath();
     ctx.arc(coinX, coinY, coinR, 0, Math.PI * 2);
     ctx.fillStyle = "#b5871f";
@@ -196,100 +200,127 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     const moleX = 400;
     const moleY = 220;
 
-    if (!isEvolving) {
+    if (type === "baseline_regular") {
+      // Regular Benign Nevus: Uniform, circular, soft reticular border
       ctx.beginPath();
       ctx.arc(moleX, moleY, 20, 0, Math.PI * 2);
-      ctx.fillStyle = "#482613";
+      ctx.fillStyle = "#4a2412";
       ctx.fill();
 
       ctx.beginPath();
-      ctx.arc(moleX - 3, moleY - 2, 12, 0, Math.PI * 2);
-      ctx.fillStyle = "#331606";
+      ctx.arc(moleX - 2, moleY - 1, 12, 0, Math.PI * 2);
+      ctx.fillStyle = "#331608";
       ctx.fill();
     } else {
+      // Evolved Dysplastic Nevus / Melanoma Suspect: Multi-lobular, notched, dark core
       ctx.beginPath();
-      ctx.ellipse(moleX + 10, moleY - 5, 38, 28, Math.PI / 4, 0, Math.PI * 2);
-      ctx.fillStyle = "#5c2b18";
+      ctx.ellipse(moleX + 10, moleY - 6, 38, 28, Math.PI / 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#542410";
       ctx.fill();
 
       ctx.beginPath();
-      ctx.ellipse(moleX - 12, moleY + 10, 26, 20, -Math.PI / 6, 0, Math.PI * 2);
-      ctx.fillStyle = "#261105";
+      ctx.ellipse(moleX - 12, moleY + 12, 28, 22, -Math.PI / 6, 0, Math.PI * 2);
+      ctx.fillStyle = "#260e05";
       ctx.fill();
 
       ctx.beginPath();
-      ctx.arc(moleX, moleY, 14, 0, Math.PI * 2);
-      ctx.fillStyle = "#0d0502";
+      ctx.arc(moleX, moleY, 15, 0, Math.PI * 2);
+      ctx.fillStyle = "#0c0401";
       ctx.fill();
     }
 
     canvas.toBlob((blob) => {
       if (blob) {
-        const name = isEvolving ? "case2-evolving-month6.png" : "case1-baseline-month0.png";
-        const file = new File([blob], name, { type: "image/png" });
+        const file = new File([blob], `${type}.png`, { type: "image/png" });
         handleFileUpload(file);
       }
     }, "image/png");
   };
 
+  const confirmActiveCalibration = () => {
+    if (!currentImageUrl || !currentFilename) return;
+
+    const data: CalibrationData = {
+      imageUrl: currentImageUrl,
+      imageFilename: currentFilename,
+      width: imgDimensions.width,
+      height: imgDimensions.height,
+      ppm: calculatedPPM,
+      coinDiameterMm: selectedCoinMm,
+    };
+
+    if (workflow === "single") {
+      onCalibrationComplete(data, null);
+    } else {
+      if (activeCalibrating === "scan1") {
+        setScan1Data(data);
+        // Reset view for scan 2
+        setCurrentImageUrl(null);
+        setCurrentFilename(null);
+        setActiveCalibrating("scan2");
+      } else {
+        setScan2Data(data);
+        if (scan1Data) {
+          onCalibrationComplete(scan1Data, data);
+        }
+      }
+    }
+  };
+
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl">
-      {/* Tab Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-slate-800">
-        <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-          <button
-            onClick={() => {
-              stopCamera();
-              setMode("presets");
-            }}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
-              mode === "presets" 
-                ? "bg-teal-500 text-slate-950 font-semibold shadow-lg shadow-teal-500/20" 
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            <Sparkles className="w-4 h-4" />
-            1-Click Benchmark Cases
-          </button>
-          <button
-            onClick={() => {
-              stopCamera();
-              setMode("upload");
-            }}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
-              mode === "upload" 
-                ? "bg-teal-500 text-slate-950 font-semibold shadow-lg shadow-teal-500/20" 
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            <Upload className="w-4 h-4" />
-            Upload File
-          </button>
-          <button
-            onClick={() => {
-              setMode("camera");
-            }}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
-              mode === "camera" 
-                ? "bg-teal-500 text-slate-950 font-semibold shadow-lg shadow-teal-500/20" 
-                : "text-slate-400 hover:text-white"
-            }`}
-          >
-            <Camera className="w-4 h-4" />
-            Live Camera
-          </button>
+    <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
+      {/* Workflow Switcher: Single vs Longitudinal */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center pb-6 border-b border-slate-800 gap-4">
+        <div>
+          <span className="text-[10px] font-mono uppercase tracking-widest text-teal-400">
+            Select Evaluation Workflow
+          </span>
+          <div className="flex items-center gap-3 mt-1.5">
+            <button
+              onClick={() => {
+                setWorkflow("longitudinal");
+                setActiveCalibrating("scan1");
+                setScan1Data(null);
+                setScan2Data(null);
+                setCurrentImageUrl(null);
+              }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                workflow === "longitudinal"
+                  ? "bg-teal-500 text-slate-950 border-teal-500 shadow-md shadow-teal-500/20"
+                  : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+              }`}
+            >
+              Longitudinal Comparison (2 Photos: T1 + T2)
+            </button>
+            <button
+              onClick={() => {
+                setWorkflow("single");
+                setActiveCalibrating("scan1");
+                setScan1Data(null);
+                setScan2Data(null);
+                setCurrentImageUrl(null);
+              }}
+              className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${
+                workflow === "single"
+                  ? "bg-teal-500 text-slate-950 border-teal-500 shadow-md shadow-teal-500/20"
+                  : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white"
+              }`}
+            >
+              Single Baseline Scan (1 Photo)
+            </button>
+          </div>
         </div>
 
         {/* Reference Coin Selector */}
-        <div className="flex items-center gap-2.5">
-          <span className="text-xs text-slate-400 font-medium">Reference Scale:</span>
+        <div className="flex items-center gap-2.5 bg-slate-950 p-2 px-3 rounded-xl border border-slate-800">
+          <span className="text-xs text-slate-400 font-medium">Reference Coin:</span>
           <select
             value={selectedCoinMm}
             onChange={(e) => setSelectedCoinMm(parseFloat(e.target.value))}
-            className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-xl px-3 py-2 outline-none focus:border-teal-500"
+            className="bg-transparent border-none text-slate-200 text-xs font-semibold outline-none cursor-pointer"
           >
             {PRESET_COINS.map((c) => (
-              <option key={c.name} value={c.mm}>
+              <option key={c.name} value={c.mm} className="bg-slate-950 text-white">
                 {c.name}
               </option>
             ))}
@@ -297,66 +328,148 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
         </div>
       </div>
 
+      {/* Longitudinal Staging Indicator (Only in Longitudinal Workflow) */}
+      {workflow === "longitudinal" && (
+        <div className="grid grid-cols-2 gap-4">
+          <div className={`p-4 rounded-2xl border transition-all ${
+            activeCalibrating === "scan1"
+              ? "bg-teal-950/30 border-teal-500 text-teal-300"
+              : scan1Data
+              ? "bg-slate-950 border-emerald-800 text-emerald-400"
+              : "bg-slate-950/60 border-slate-800 text-slate-500"
+          }`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold flex items-center gap-1.5">
+                Scan 1: Month 0 Baseline (T1)
+                {scan1Data && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+              </span>
+              <span className="text-[10px] font-mono">
+                {scan1Data ? `${scan1Data.ppm} px/mm` : "Awaiting calibration"}
+              </span>
+            </div>
+          </div>
+
+          <div className={`p-4 rounded-2xl border transition-all ${
+            activeCalibrating === "scan2"
+              ? "bg-teal-950/30 border-teal-500 text-teal-300"
+              : scan2Data
+              ? "bg-slate-950 border-emerald-800 text-emerald-400"
+              : "bg-slate-950/60 border-slate-800 text-slate-500"
+          }`}>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold flex items-center gap-1.5">
+                Scan 2: Month 6 Follow-up (T2)
+                {scan2Data && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+              </span>
+              <span className="text-[10px] font-mono">
+                {scan2Data ? `${scan2Data.ppm} px/mm` : "Step 2"}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ingestion Methods */}
+      <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 w-fit">
+        <button
+          onClick={() => {
+            stopCamera();
+            setInputTab("presets");
+          }}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
+            inputTab === "presets" ? "bg-teal-500 text-slate-950 font-semibold" : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          1-Click Benchmark Datasets
+        </button>
+        <button
+          onClick={() => {
+            stopCamera();
+            setInputTab("upload");
+          }}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
+            inputTab === "upload" ? "bg-teal-500 text-slate-950 font-semibold" : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Upload className="w-4 h-4" />
+          Upload Image
+        </button>
+        <button
+          onClick={() => setInputTab("camera")}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
+            inputTab === "camera" ? "bg-teal-500 text-slate-950 font-semibold" : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Camera className="w-4 h-4" />
+          Live Camera
+        </button>
+      </div>
+
       {errorMessage && (
-        <div className="mt-4 p-3 bg-rose-950/50 border border-rose-800 rounded-xl text-rose-300 text-xs flex items-center gap-2">
+        <div className="p-3 bg-rose-950/50 border border-rose-800 rounded-xl text-rose-300 text-xs flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 flex-shrink-0" />
           <span>{errorMessage}</span>
         </div>
       )}
 
-      {/* Main Interaction Area */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-6">
-        {/* Left Column: Viewport / Input */}
-        <div className="lg:col-span-8 flex flex-col items-center justify-center min-h-[460px] bg-slate-950 rounded-2xl border border-slate-800/80 relative overflow-hidden">
-          {mode === "presets" && !imageUrl && (
+      {/* Main Viewport Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Left Viewport */}
+        <div className="lg:col-span-8 flex flex-col items-center justify-center min-h-[460px] bg-slate-950 rounded-2xl border border-slate-800 relative overflow-hidden">
+          {inputTab === "presets" && !currentImageUrl && (
             <div className="p-8 w-full max-w-lg space-y-4 text-center">
-              <h3 className="text-base font-bold text-white mb-2">
-                Select Benchmark Lesion Case
+              <h3 className="text-base font-bold text-white">
+                Load Realistic Clinical Dermoscopic Presets
               </h3>
               <p className="text-xs text-slate-400 mb-6">
-                Instant test samples calibrated with standard ₹5 (25mm) scale for hackathon demonstration.
+                Standard ₹5 (25mm) scale calibrated benchmark cases for hackathon demonstration.
               </p>
 
               <div className="grid grid-cols-1 gap-4">
                 <button
-                  onClick={() => generateBenchmarkPNG(false)}
-                  className="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-teal-500/60 text-left transition-all hover:translate-y-[-2px] group"
+                  onClick={() => generateRealisticSkinCanvas("baseline_regular")}
+                  className="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-teal-500/60 text-left transition-all hover:translate-y-[-2px]"
                 >
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-teal-300">Case A: Baseline Mole (Month 0)</span>
+                    <span className="text-xs font-bold text-teal-300">
+                      Preset 1: Regular Benign Nevus (Baseline)
+                    </span>
                     <span className="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400">Regular Nevus</span>
                   </div>
                   <p className="text-xs text-slate-400 mt-2">
-                    Uniform circular border, symmetric pigment distribution, ~5.2mm diameter.
+                    Uniform circular border, homogeneous pigment distribution (~5.2mm diameter).
                   </p>
                 </button>
 
                 <button
-                  onClick={() => generateBenchmarkPNG(true)}
-                  className="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-amber-500/60 text-left transition-all hover:translate-y-[-2px] group"
+                  onClick={() => generateRealisticSkinCanvas("evolved_melanoma_suspect")}
+                  className="p-5 rounded-2xl bg-slate-900 border border-slate-800 hover:border-rose-500/60 text-left transition-all hover:translate-y-[-2px]"
                 >
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-bold text-amber-300">Case B: Longitudinal Follow-up (Month 6)</span>
-                    <span className="text-[10px] bg-rose-950/80 border border-rose-800 text-rose-300 px-2 py-0.5 rounded">Evolving Lesion</span>
+                    <span className="text-xs font-bold text-rose-300">
+                      Preset 2: Evolved Dysplastic Lesion (Melanoma Suspect)
+                    </span>
+                    <span className="text-[10px] bg-rose-950/80 border border-rose-800 text-rose-300 px-2 py-0.5 rounded">High Risk</span>
                   </div>
                   <p className="text-xs text-slate-400 mt-2">
-                    Progressive radial growth, multi-tone pigmentation, irregular borders ({">"}9.5mm diameter).
+                    Multi-tone pigmentation, irregular lobulated border, rapid radial growth (&gt;9.5mm diameter).
                   </p>
                 </button>
               </div>
             </div>
           )}
 
-          {mode === "upload" && !imageUrl && (
+          {inputTab === "upload" && !currentImageUrl && (
             <label className="w-full h-full flex flex-col items-center justify-center p-8 cursor-pointer hover:bg-slate-900/50 transition-colors">
               <div className="w-16 h-16 rounded-2xl bg-teal-500/10 text-teal-400 flex items-center justify-center mb-4 border border-teal-500/20">
                 <Upload className="w-8 h-8" />
               </div>
               <p className="text-sm font-semibold text-slate-200">
-                Drop your skin image here, or <span className="text-teal-400 underline">browse</span>
+                Drop skin image here, or <span className="text-teal-400 underline">browse</span>
               </p>
               <p className="text-xs text-slate-500 mt-2 text-center max-w-sm">
-                Supports standard PNG and JPEG images with a visible circular coin marker.
+                Ensure mole and reference coin are clearly visible without glare.
               </p>
               <input
                 type="file"
@@ -369,7 +482,7 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             </label>
           )}
 
-          {mode === "camera" && !imageUrl && (
+          {inputTab === "camera" && !currentImageUrl && (
             <div className="relative w-full h-full flex flex-col items-center justify-center p-4">
               <video
                 ref={videoRef}
@@ -377,16 +490,9 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
                 playsInline
                 className="w-full max-h-[460px] object-cover rounded-xl"
               />
-              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
-                <div className="w-64 h-64 border-2 border-dashed border-teal-400/50 rounded-full animate-pulse flex items-center justify-center">
-                  <span className="text-[10px] text-teal-300 font-mono uppercase bg-slate-950/80 px-2 py-0.5 rounded">
-                    Center Lesion & Coin Here
-                  </span>
-                </div>
-              </div>
               <button
                 onClick={captureCameraFrame}
-                className="mt-4 px-6 py-2.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold rounded-xl text-xs flex items-center gap-2 shadow-lg transition-transform active:scale-95"
+                className="mt-4 px-6 py-2.5 bg-teal-500 hover:bg-teal-400 text-slate-950 font-semibold rounded-xl text-xs flex items-center gap-2 shadow-lg"
               >
                 <Camera className="w-4 h-4" />
                 Capture Snapshot
@@ -394,17 +500,17 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             </div>
           )}
 
-          {/* Active Calibrator Viewport */}
-          {imageUrl && (
+          {/* Active Calibration Overlay */}
+          {currentImageUrl && (
             <div className="relative w-full h-full flex items-center justify-center p-2 select-none">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={imageUrl}
-                alt="Lesion to calibrate"
+                src={currentImageUrl}
+                alt="Calibrating skin scan"
                 className="max-h-[480px] w-auto object-contain rounded-xl shadow-lg"
               />
 
-              {/* Interactive Calibration Ring */}
+              {/* Draggable Calibration Ring */}
               <div
                 style={{
                   width: `${ringDiameterPx}px`,
@@ -446,7 +552,7 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
           )}
         </div>
 
-        {/* Right Column: Calibration Controls & Readouts */}
+        {/* Right Column: Controls */}
         <div className="lg:col-span-4 flex flex-col justify-between space-y-6 bg-slate-950/60 border border-slate-800/80 p-6 rounded-2xl">
           <div>
             <div className="flex items-center gap-2 mb-2">
@@ -456,7 +562,7 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
               </h3>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed">
-              Drag the amber ring over the reference coin. Adjust the diameter slider until it matches the coin boundary to establish true millimeter scale.
+              Drag the amber ring over the reference coin. Adjust the diameter slider until it matches the outer coin edge to lock true millimeter scale.
             </p>
 
             <div className="mt-6 space-y-3">
@@ -490,39 +596,30 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
             </div>
           </div>
 
-          {/* Action buttons */}
           <div className="space-y-3">
-            {imageUrl && (
+            {currentImageUrl && (
               <button
                 onClick={() => {
                   stopCamera();
-                  setImageUrl(null);
-                  setErrorMessage(null);
+                  setCurrentImageUrl(null);
+                  setCurrentFilename(null);
                 }}
                 className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 text-xs font-medium border border-slate-800 transition-colors"
               >
-                Choose Another Image / Preset
+                Change Photo
               </button>
             )}
 
             <button
-              disabled={!imageUrl}
-              onClick={() => {
-                stopCamera();
-                if (imageUrl) {
-                  onCalibrationComplete({
-                    imageUrl,
-                    width: imgDimensions.width,
-                    height: imgDimensions.height,
-                    ppm: calculatedPPM,
-                    coinDiameterMm: selectedCoinMm,
-                  });
-                }
-              }}
-              className="w-full py-3 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-teal-500/20 transition-all active:scale-[0.98]"
+              disabled={!currentImageUrl}
+              onClick={confirmActiveCalibration}
+              className="w-full py-3.5 px-4 rounded-xl bg-teal-500 hover:bg-teal-400 disabled:opacity-40 disabled:cursor-not-allowed text-slate-950 text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-teal-500/20 transition-all active:scale-[0.98]"
             >
-              Confirm Scale & Proceed to ABCDE
-              <ArrowRight className="w-4 h-4" />
+              {workflow === "single"
+                ? "Lock Scale & Run ABCDE Extraction →"
+                : activeCalibrating === "scan1"
+                ? "Lock Scan 1 Scale & Proceed to Scan 2 →"
+                : "Lock Both Scales & Run Longitudinal Analysis →"}
             </button>
           </div>
         </div>
