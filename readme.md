@@ -153,56 +153,71 @@ flowchart TD
 
 ---
 
-## 🔬 Quantitative ABCDE Algorithms
+## 🔬 Quantitative Clinical ABCDE Engine
 
-DermaTrack implements reproducible mathematical formulations matching clinical dermatology literature:
+DermaTrack implements reproducible mathematical formulations matching clinical dermatology literature for all 5 ABCDE criteria:
 
-### 1. Asymmetry (Dual-Axis XOR Fold Overlap)
+> **Clinical ABCDE Overview:**
+> * **A (Asymmetry):** Dual-axis XOR fold overlap percentage.
+> * **B (Border):** Isoperimetric compactness ratio ($P^2 / 4\pi A$).
+> * **C (Color):** Standard deviation of RGB/HSV pigment distribution.
+> * **D (Diameter):** Calibrated millimetric scale ($mm = \text{pixels} / \text{PPM}$).
+> * **E (Evolution):** Centroid-aligned differential expansion heatmaps and area change velocity ($\Delta \text{Area \%}$).
+
+---
+
+### A. Asymmetry (Dual-Axis XOR Fold Overlap)
 The lesion binary mask $M$ is centered on its centroid $(\bar{x}, \bar{y})$. The mask is mirrored across both horizontal and vertical axes:
 
 $$\text{Asymmetry Score} = \frac{1}{2} \left[ \frac{\text{Area}(M \oplus \text{Flip}_H(M))}{\text{Area}(M)} + \frac{\text{Area}(M \oplus \text{Flip}_V(M))}{\text{Area}(M)} \right] \times 100\%$$
 
-* **Low Risk:** $< 25\%$ (Symmetric)
-* **Moderate:** $25\% - 45\%$ (Mild asymmetry)
-* **Suspicious:** $> 45\%$ (Marked asymmetry)
+* **Low Risk:** $< 25\%$ (Symmetric morphology)
+* **Moderate:** $25\% - 45\%$ (Mild unilateral asymmetry)
+* **Suspicious:** $> 45\%$ (Marked malignant asymmetry)
 
-### 2. Border Compactness (Polsby-Popper Quotient)
-Measuring the raggedness and notching of the perimeter $P$ relative to area $A$:
+---
+
+### B. Border (Isoperimetric Compactness Ratio)
+Measuring the raggedness, notching, and radial indentations of the perimeter $P$ relative to area $A$ (Polsby-Popper isoperimetric quotient):
 
 $$C = \frac{P^2}{4\pi A}$$
 
 * **Regular / Smooth:** $C < 1.30$
 * **Mildly Irregular / Notched:** $1.30 \le C < 1.70$
-* **Highly Irregular / Ragged:** $C \ge 1.70$
+* **Highly Irregular / Ragged:** $C \ge 1.70$ (Malignant pseudopod alert)
 
-### 3. Color Variegation & Shade Spectrum
-Calculates standard deviation of pixel intensity inside the segmented lesion mask:
+---
+
+### C. Color (Pigment Variegation & Spectrum Heterogeneity)
+Calculates the spatial standard deviation of pixel intensity inside the segmented lesion mask across RGB/HSV channels:
 
 $$\sigma_{\text{lesion}} = \sqrt{\frac{1}{N} \sum_{i=1}^N (I_i - \mu)^2}$$
 
 Identifies critical dermatological pigment flags:
-- `Dark Brown / Black Core` ($\mu_R, \mu_G, \mu_B < 65$)
-- `Erythematous / Reddish Tint` ($\mu_R > 100 \land \mu_G < 75$)
-- `Heterogeneous Pigment Spread` ($\sigma > 22.0$)
-
-### 4. Calibrated Physical Diameter
-Using minimum area bounding box dimensions ($w_{px}, h_{px}$) and optical calibration PPM:
-
-$$D_{mm} = \frac{\max(w_{px}, h_{px})}{\text{PPM}}$$
-
-- Clinical Alert triggered when $D_{mm} \ge 6.0\text{ mm}$ (Pencil eraser diagnostic rule).
+* `Dark Brown / Black Core` ($\mu_R, \mu_G, \mu_B < 65$)
+* `Erythematous / Reddish Tint` ($\mu_R > 100 \land \mu_G < 75$)
+* `Heterogeneous Pigment Spread` ($\sigma > 22.0$)
 
 ---
 
-## ⏳ Longitudinal Evolution Engine
+### D. Diameter (Calibrated Sub-Millimetric Sizing)
+Using minimum area bounding box dimensions ($w_{px}, h_{px}$) and optical calibration PPM (derived from standard coins/markers):
 
-The centerpiece of DermaTrack is the quantitative comparison of paired scans ($T_1$ Baseline and $T_2$ Follow-up):
+$$D_{mm} = \frac{\max(w_{px}, h_{px})}{\text{PPM}}$$
+
+* **Clinical Alert:** Triggered when $D_{mm} \ge 6.0\text{ mm}$ (Standard clinical pencil-eraser rule).
+
+---
+
+### E. Evolution (Centroid-Aligned Longitudinal Expansion & Velocity)
+The defining innovation of DermaTrack is the quantitative tracking of morphological changes between paired scans ($T_1$ Baseline and $T_2$ Follow-up):
 
 ```
                    T1 Baseline (Area1, D1)
                              │
                              ▼
             [ Spatial Centroid Moment Alignment ]
+              Shift = (c2x - c1x, c2y - c1y)
                              │
             [ Vectorized Contour Subtraction ]
                              │
@@ -213,13 +228,14 @@ The centerpiece of DermaTrack is the quantitative comparison of paired scans ($T
   [ Rendered in Cyan ]                 [ Rendered in Red ]
 ```
 
-### Growth Velocity Metrics:
-- **Calibrated Area Growth ($\Delta\text{Area}\%$):**
+#### Growth Velocity Formulations:
+* **Calibrated Area Growth Velocity ($\Delta\text{Area}\%$):**
   $$\Delta \text{Area}\% = \frac{\text{Area}_{T2, mm^2} - \text{Area}_{T1, mm^2}}{\text{Area}_{T1, mm^2}} \times 100\%$$
-- **Radial Diameter Delta ($\Delta D$):**
+* **Radial Diameter Delta ($\Delta D$):**
   $$\Delta D_{mm} = D_{T2, mm} - D_{T1, mm}$$
-- **Border Irregularity Delta ($\Delta C$):**
+* **Border Irregularity Delta ($\Delta C$):**
   $$\Delta C = C_{T2} - C_{T1}$$
+* **Differential Expansion Heatmap:** Vectorized NumPy alpha-blending projecting a **Cyan stable core** and a **Crimson active growth margin** onto the $T_2$ dermoscopic canvas.
 
 ---
 
