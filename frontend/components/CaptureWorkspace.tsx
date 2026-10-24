@@ -153,6 +153,22 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
     }
   };
 
+  const loadSamplePreset = async (samplePath: string, filename: string) => {
+    stopCamera();
+    setUploading(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch(samplePath);
+      if (!res.ok) throw new Error("Could not load sample image file");
+      const blob = await res.blob();
+      const file = new File([blob], filename, { type: "image/jpeg" });
+      await handleFileUpload(file);
+    } catch (err: unknown) {
+      setErrorMessage("Failed to load sample: " + (err instanceof Error ? err.message : String(err)));
+      setUploading(false);
+    }
+  };
+
   const confirmActiveCalibration = () => {
     if (!currentImageUrl || !currentFilename) return;
 
@@ -307,6 +323,18 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
           <Camera className="w-4 h-4" />
           Live Camera
         </button>
+        <button
+          onClick={() => {
+            stopCamera();
+            setInputTab("presets");
+          }}
+          className={`flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-lg transition-all ${
+            inputTab === "presets" ? "bg-teal-500 text-slate-950 font-semibold" : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          Test Samples (3 Included)
+        </button>
       </div>
 
       {errorMessage && (
@@ -340,6 +368,108 @@ export default function CaptureWorkspace({ onCalibrationComplete }: Props) {
                 }}
               />
             </label>
+          )}
+
+          {inputTab === "presets" && !currentImageUrl && (
+            <div className="w-full h-full p-6 flex flex-col justify-center">
+              <div className="text-center mb-5">
+                <span className="text-[10px] uppercase font-mono tracking-widest text-teal-400">
+                  Instant Clinical Benchmark Cases
+                </span>
+                <h3 className="text-base font-bold text-white mt-1">
+                  Select a Pre-Loaded Clinical Testing Image
+                </h3>
+                <p className="text-xs text-slate-400 max-w-md mx-auto mt-1">
+                  Click any sample below to immediately ingest, calibrate, and compute quantitative ABCDE & temporal metrics.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Case 1 */}
+                <div className="bg-slate-900/80 border border-slate-800 hover:border-teal-500/50 rounded-2xl p-3 flex flex-col items-center text-center transition-all group">
+                  <div className="w-full aspect-square rounded-xl overflow-hidden mb-3 bg-black border border-slate-800 relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/samples/sample_case1.jpg"
+                      alt="Clinical Case 1"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span className="absolute top-2 left-2 bg-rose-500/90 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                      Case 1
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-semibold text-slate-200 mb-1">
+                    Nodular / Amelanotic
+                  </h4>
+                  <p className="text-[10px] text-slate-400 mb-3 line-clamp-2">
+                    Erythematous core with dark pigment clustering.
+                  </p>
+                  <button
+                    disabled={uploading}
+                    onClick={() => loadSamplePreset("/samples/sample_case1.jpg", "sample_case1.jpg")}
+                    className="w-full py-1.5 px-3 rounded-lg bg-teal-500/10 hover:bg-teal-500 text-teal-400 hover:text-slate-950 font-bold text-xs border border-teal-500/30 transition-all disabled:opacity-50"
+                  >
+                    {uploading ? "Loading..." : "Load Case 1"}
+                  </button>
+                </div>
+
+                {/* Case 2 */}
+                <div className="bg-slate-900/80 border border-slate-800 hover:border-teal-500/50 rounded-2xl p-3 flex flex-col items-center text-center transition-all group">
+                  <div className="w-full aspect-square rounded-xl overflow-hidden mb-3 bg-black border border-slate-800 relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/samples/sample_case2.jpg"
+                      alt="Clinical Case 2"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span className="absolute top-2 left-2 bg-amber-500/90 text-slate-950 text-[9px] font-bold px-1.5 py-0.5 rounded">
+                      Case 2
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-semibold text-slate-200 mb-1">
+                    Dysplastic Spreading Macule
+                  </h4>
+                  <p className="text-[10px] text-slate-400 mb-3 line-clamp-2">
+                    Marked ragged notched border on sun-damaged skin.
+                  </p>
+                  <button
+                    disabled={uploading}
+                    onClick={() => loadSamplePreset("/samples/sample_case2.jpg", "sample_case2.jpg")}
+                    className="w-full py-1.5 px-3 rounded-lg bg-teal-500/10 hover:bg-teal-500 text-teal-400 hover:text-slate-950 font-bold text-xs border border-teal-500/30 transition-all disabled:opacity-50"
+                  >
+                    {uploading ? "Loading..." : "Load Case 2"}
+                  </button>
+                </div>
+
+                {/* Case 3 */}
+                <div className="bg-slate-900/80 border border-slate-800 hover:border-teal-500/50 rounded-2xl p-3 flex flex-col items-center text-center transition-all group">
+                  <div className="w-full aspect-square rounded-xl overflow-hidden mb-3 bg-black border border-slate-800 relative">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/samples/sample_case3.jpg"
+                      alt="Clinical Case 3"
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span className="absolute top-2 left-2 bg-teal-500/90 text-slate-950 text-[9px] font-bold px-1.5 py-0.5 rounded">
+                      Case 3
+                    </span>
+                  </div>
+                  <h4 className="text-xs font-semibold text-slate-200 mb-1">
+                    Reticular Atypical Nevus
+                  </h4>
+                  <p className="text-[10px] text-slate-400 mb-3 line-clamp-2">
+                    Classic dermoscopy with prominent pigment network.
+                  </p>
+                  <button
+                    disabled={uploading}
+                    onClick={() => loadSamplePreset("/samples/sample_case3.jpg", "sample_case3.jpg")}
+                    className="w-full py-1.5 px-3 rounded-lg bg-teal-500/10 hover:bg-teal-500 text-teal-400 hover:text-slate-950 font-bold text-xs border border-teal-500/30 transition-all disabled:opacity-50"
+                  >
+                    {uploading ? "Loading..." : "Load Case 3"}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
 
           {inputTab === "camera" && !currentImageUrl && (
